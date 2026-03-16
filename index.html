@@ -1,0 +1,783 @@
+<!DOCTYPE html>
+<html lang="pl">
+<head>
+    <meta charset="UTF-8">
+    <!-- KLUCZOWE: Blokada skalowania i zoomowania na mobile -->
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+    <title>Super Fizyka Kamieni 2.0</title>
+    <style>
+        body {
+            margin: 0;
+            padding: 0;
+            overflow: hidden;
+            background: linear-gradient(135deg, #1a1a2e 0%, #16213e 100%);
+            font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+            user-select: none;
+            -webkit-user-select: none;
+            height: 100vh;
+            width: 100vw;
+            /* Zapobiega gestom przeglądarki (pull-to-refresh, swipe back) */
+            touch-action: none;
+            overscroll-behavior: none;
+            transition: transform 0.05s ease-out;
+        }
+
+        canvas {
+            display: block;
+            cursor: crosshair;
+            touch-action: none; /* Kluczowe dla touch events */
+        }
+
+        /* --- PANEL UI (RESPONSYWNY) --- */
+        #ui-panel {
+            position: absolute;
+            z-index: 10;
+            display: flex;
+            gap: 10px;
+            padding: 10px;
+            background: rgba(0, 0, 0, 0.4);
+            backdrop-filter: blur(10px);
+            border-radius: 16px;
+            border: 1px solid rgba(255, 255, 255, 0.1);
+            transition: all 0.3s ease;
+            box-shadow: 0 4px 15px rgba(0,0,0,0.3);
+        }
+
+        /* Styl PC: Pionowo z prawej */
+        @media (min-width: 769px) {
+            #ui-panel {
+                top: 20px;
+                right: 20px;
+                flex-direction: column;
+                max-height: 85vh;
+                overflow-y: auto;
+                width: 200px;
+            }
+            button {
+                justify-content: space-between;
+                text-align: left;
+            }
+        }
+
+        /* Styl Mobile: Poziomo na dole */
+        @media (max-width: 768px) {
+            #ui-panel {
+                top: auto;
+                bottom: 20px;
+                left: 50%;
+                transform: translateX(-50%);
+                width: 90%;
+                max-width: 600px;
+                flex-direction: row;
+                overflow-x: auto;
+                overflow-y: hidden;
+                height: auto;
+                align-items: center;
+                padding: 8px;
+                /* Ukrywanie paska przewijania */
+                -ms-overflow-style: none;
+                scrollbar-width: none;
+            }
+            #ui-panel::-webkit-scrollbar {
+                display: none;
+            }
+            
+            button {
+                flex-shrink: 0; /* Przyciski nie będą się ściskać */
+                padding: 12px 16px;
+                font-size: 12px;
+                white-space: nowrap;
+                flex-direction: column;
+                justify-content: center;
+                align-items: center;
+                gap: 4px;
+            }
+            
+            .status-badge {
+                display: none; /* Ukrywamy dodatkowe opisy na mobile zaoszczędzić miejsca */
+            }
+        }
+
+        button {
+            background: rgba(255, 255, 255, 0.05);
+            border: 1px solid rgba(255, 255, 255, 0.1);
+            color: white;
+            padding: 12px 15px;
+            border-radius: 10px;
+            cursor: pointer;
+            font-size: 14px;
+            backdrop-filter: blur(4px);
+            transition: all 0.2s;
+            display: flex;
+            align-items: center;
+            outline: none;
+            -webkit-tap-highlight-color: transparent; /* Usuwa niebieski flash na mobile */
+        }
+
+        button:hover {
+            background: rgba(255, 255, 255, 0.2);
+            transform: translateY(-2px);
+            border-color: rgba(255,255,255,0.4);
+        }
+
+        button:active {
+            transform: scale(0.95);
+            background: rgba(255, 255, 255, 0.1);
+        }
+
+        button.active-mode {
+            background: rgba(0, 255, 200, 0.25);
+            border-color: rgba(0, 255, 200, 0.6);
+            box-shadow: 0 0 12px rgba(0, 255, 200, 0.3);
+            color: #fff;
+        }
+
+        button.danger {
+            color: #ff6b6b;
+            border-color: rgba(255, 107, 107, 0.3);
+        }
+        button.danger:hover {
+            background: rgba(255, 107, 107, 0.2);
+        }
+
+        .status-badge {
+            font-size: 10px;
+            opacity: 0.6;
+            background: rgba(0,0,0,0.3);
+            padding: 2px 6px;
+            border-radius: 4px;
+            text-transform: uppercase;
+        }
+
+        /* --- ELEMENTY INFORMACYJNE --- */
+        #info-top {
+            position: absolute;
+            top: 0;
+            left: 0;
+            width: 100%;
+            padding: 15px;
+            box-sizing: border-box;
+            pointer-events: none;
+            display: flex;
+            flex-direction: column;
+            gap: 5px;
+        }
+
+        #gravity-status {
+            align-self: flex-start;
+            color: white;
+            font-size: 16px;
+            font-weight: 700;
+            text-shadow: 0 2px 4px rgba(0,0,0,0.8);
+            background: rgba(0,0,0,0.4);
+            padding: 6px 14px;
+            border-radius: 20px;
+            backdrop-filter: blur(4px);
+            border: 1px solid rgba(255,255,255,0.1);
+        }
+
+        #tool-indicator {
+            align-self: flex-start;
+            color: #0ff;
+            font-size: 14px;
+            font-weight: 500;
+            text-shadow: 0 2px 4px rgba(0,0,0,0.8);
+            background: rgba(0,0,0,0.3);
+            padding: 4px 10px;
+            border-radius: 8px;
+            margin-top: 5px;
+        }
+
+        #info-bottom {
+            position: absolute;
+            bottom: 20px;
+            left: 20px;
+            color: rgba(255, 255, 255, 0.5);
+            font-size: 12px;
+            pointer-events: none;
+            line-height: 1.4;
+            max-width: 300px;
+        }
+
+        @media (max-width: 768px) {
+            #info-bottom {
+                display: none; /* Ukrywamy długi tekst na telefonie, żeby nie zaśmiecać */
+            }
+            #info-top {
+                align-items: center;
+            }
+            #gravity-status, #tool-indicator {
+                align-self: center;
+            }
+        }
+    </style>
+</head>
+<body>
+
+    <div id="info-top">
+        <div id="gravity-status">🌍 Grawitacja: ON</div>
+        <div id="tool-indicator">✋ Tryb: Tworzenie</div>
+    </div>
+
+    <!-- Panel sterowania -->
+    <div id="ui-panel">
+        <button id="mode-spawn" class="active-mode" onclick="setMode('spawn')">
+            <span>✋ Tworzenie</span> <span class="status-badge">Kliknij</span>
+        </button>
+        <button id="mode-explode" onclick="setMode('explode')">
+            <span>💣 Eksplozja</span> <span class="status-badge">Kliknij</span>
+        </button>
+        <button onclick="toggleGravity()">🌍 Grawitacja</button>
+        <button onclick="toggleRepulsion()">
+            <span>🧲 Odpychanie</span> <span id="repel-status" class="status-badge">OFF</span>
+        </button>
+        <button onclick="togglePause()">⏯ Pauza</button>
+        <div style="width: 1px; background: rgba(255,255,255,0.1); margin: 0 5px;"></div>
+        <button onclick="spawnRain()">🌧 Deszcz</button>
+        <button onclick="resetImpulse()">🚀 Reset V</button>
+        <button class="danger" onclick="clearAll()">🗑 Wyczyść</button>
+    </div>
+
+    <div id="info-bottom">
+        <b>LPM / Dotyk:</b> Akcja w zależności od trybu<br>
+        <b>Przeciągnij:</b> Rzut kamieniem (pociągnij i puść)<br>
+        <b>Fizyka:</b> Sprężyste kolizje, tarcie, grawitacja.
+    </div>
+
+    <canvas id="gameCanvas"></canvas>
+
+    <script>
+        const canvas = document.getElementById('gameCanvas');
+        const ctx = canvas.getContext('2d');
+        const gravityText = document.getElementById('gravity-status');
+        const toolText = document.getElementById('tool-indicator');
+        const repelStatus = document.getElementById('repel-status');
+
+        let width, height;
+        function resizeCanvas() {
+            width = window.innerWidth;
+            height = window.innerHeight;
+            canvas.width = width;
+            canvas.height = height;
+        }
+        window.addEventListener('resize', resizeCanvas);
+        resizeCanvas();
+
+        // --- Zmienne globalne ---
+        let stones = [];
+        let shockwaves = [];
+        let particles = [];
+        let isGravityOn = true;
+        let isRepulsionOn = false;
+        let isPaused = false;
+        let currentMode = 'spawn'; // 'spawn' lub 'explode'
+        
+        const GRAVITY_FORCE = 0.5;
+        const BOUNCE_DAMPING = 0.75; 
+        const STONE_ELASTICITY = 0.85; 
+        
+        // --- Klasa Kamienia ---
+        class Stone {
+            constructor(x, y, r = null) {
+                this.x = x;
+                this.y = y;
+                this.vx = 0;
+                this.vy = 0;
+                // Na telefonie kamienie niech są troszkę mniejsze domyślnie, żeby się zmieściło więcej
+                const baseSize = window.innerWidth < 600 ? 15 : 20;
+                this.radius = r || (baseSize + Math.random() * 25);
+                
+                this.rotation = Math.random() * Math.PI * 2;
+                this.rotationSpeed = 0;
+                this.trail = [];
+                this.isDragging = false;
+                
+                this.mass = this.radius * this.radius; 
+                this.invMass = 1 / this.mass; 
+            }
+
+            update() {
+                if (this.isDragging || isPaused) return;
+
+                // Grawitacja
+                if (isGravityOn) this.vy += GRAVITY_FORCE;
+
+                // Opór powietrza
+                this.vx *= 0.99;
+                this.vy *= 0.99;
+
+                this.x += this.vx;
+                this.y += this.vy;
+
+                // Rotacja
+                this.rotationSpeed = this.vx * 0.02;
+                this.rotation += this.rotationSpeed;
+
+                // Ślad
+                const speed = Math.sqrt(this.vx*this.vx + this.vy*this.vy);
+                if (speed > 1) {
+                    this.trail.push({ x: this.x, y: this.y, age: 1, speed: speed });
+                }
+
+                for (let i = this.trail.length - 1; i >= 0; i--) {
+                    this.trail[i].age -= 0.04;
+                    if (this.trail[i].age <= 0) this.trail.splice(i, 1);
+                }
+
+                this.checkWallCollisions();
+            }
+
+            checkWallCollisions() {
+                const friction = 0.98; 
+
+                // Prawa
+                if (this.x + this.radius > width) {
+                    this.x = width - this.radius;
+                    this.vx *= -BOUNCE_DAMPING;
+                    this.onImpact(Math.abs(this.vx));
+                }
+                // Lewa
+                if (this.x - this.radius < 0) {
+                    this.x = this.radius;
+                    this.vx *= -BOUNCE_DAMPING;
+                    this.onImpact(Math.abs(this.vx));
+                }
+                // Dół
+                if (this.y + this.radius > height) {
+                    this.y = height - this.radius;
+                    this.vy *= -BOUNCE_DAMPING;
+                    this.vx *= friction;
+                    this.onImpact(Math.abs(this.vy));
+                }
+                // Góra
+                if (this.y - this.radius < 0) {
+                    this.y = this.radius;
+                    this.vy *= -BOUNCE_DAMPING;
+                    this.onImpact(Math.abs(this.vy));
+                }
+            }
+
+            onImpact(force) {
+                if (force > 6) {
+                    shockwaves.push(new Shockwave(this.x, this.y, force * 2));
+                    for (let i = 0; i < Math.min(force, 20); i++) {
+                        particles.push(new Particle(this.x, this.y, force));
+                    }
+                    shakeScreen(force / 10);
+                }
+            }
+
+            draw() {
+                // Rysowanie śladu
+                for (let i = 0; i < this.trail.length; i++) {
+                    const p = this.trail[i];
+                    const size = this.radius * 0.4 * p.age;
+                    const hue = 200 - Math.min(p.speed * 3, 160); 
+                    ctx.fillStyle = `hsla(${hue}, 80%, 60%, ${p.age * 0.4})`;
+                    ctx.beginPath();
+                    ctx.arc(p.x, p.y, size, 0, Math.PI * 2);
+                    ctx.fill();
+                }
+
+                ctx.save();
+                ctx.translate(this.x, this.y);
+                ctx.rotate(this.rotation);
+
+                const speed = Math.sqrt(this.vx*this.vx + this.vy*this.vy);
+                const heat = Math.min(speed / 25, 1);
+
+                // Kształt kamienia (nieregularny wielokąt)
+                ctx.beginPath();
+                const points = 7;
+                for (let i = 0; i < points; i++) {
+                    const angle = (i / points) * Math.PI * 2;
+                    const seed = Math.sin(i * 132.1 + this.radius); 
+                    const r = this.radius * (0.9 + seed * 0.2); 
+                    const px = Math.cos(angle) * r;
+                    const py = Math.sin(angle) * r;
+                    if (i === 0) ctx.moveTo(px, py);
+                    else ctx.lineTo(px, py);
+                }
+                ctx.closePath();
+
+                // Gradient
+                const grad = ctx.createRadialGradient(-this.radius*0.3, -this.radius*0.3, 0, 0, 0, this.radius);
+                const rVal = Math.floor(80 + heat * 175); 
+                const gVal = Math.floor(80 + heat * 20); 
+                const bVal = Math.floor(80 - heat * 80);
+                
+                grad.addColorStop(0, `rgb(${rVal+40}, ${gVal+40}, ${bVal+40})`);
+                grad.addColorStop(1, `rgb(${rVal-30}, ${gVal-30}, ${bVal-30})`);
+
+                ctx.fillStyle = grad;
+                ctx.fill();
+                
+                if (heat > 0.2) {
+                    ctx.shadowColor = `rgba(255, ${100-heat*100}, 0, ${heat})`;
+                    ctx.shadowBlur = 15 * heat;
+                }
+                
+                ctx.strokeStyle = 'rgba(0,0,0,0.6)';
+                ctx.lineWidth = 2;
+                ctx.stroke();
+                ctx.restore();
+            }
+        }
+
+        // --- Klasa Fali Uderzeniowej ---
+        class Shockwave {
+            constructor(x, y, maxRadius) {
+                this.x = x;
+                this.y = y;
+                this.radius = 0;
+                this.maxRadius = maxRadius + 30;
+                this.alpha = 1;
+                this.width = 3;
+            }
+            update() {
+                this.radius += 8;
+                this.alpha -= 0.04;
+                this.width -= 0.1;
+            }
+            draw() {
+                if (this.width <= 0) return;
+                ctx.beginPath();
+                ctx.arc(this.x, this.y, this.radius, 0, Math.PI * 2);
+                ctx.strokeStyle = `rgba(255, 255, 255, ${this.alpha})`;
+                ctx.lineWidth = this.width;
+                ctx.stroke();
+            }
+            isDead() { return this.alpha <= 0; }
+        }
+
+        // --- Klasa Cząsteczki ---
+        class Particle {
+            constructor(x, y, speedFactor) {
+                this.x = x;
+                this.y = y;
+                const angle = Math.random() * Math.PI * 2;
+                const speed = Math.random() * (speedFactor || 5);
+                this.vx = Math.cos(angle) * speed;
+                this.vy = Math.sin(angle) * speed;
+                this.life = 1;
+                this.decay = 0.02 + Math.random() * 0.03;
+                this.color = `hsl(${Math.random() * 40 + 10}, 100%, 60%)`;
+            }
+            update() {
+                this.x += this.vx;
+                this.y += this.vy;
+                this.vy += 0.2; 
+                this.life -= this.decay;
+            }
+            draw() {
+                ctx.fillStyle = this.color;
+                ctx.globalAlpha = this.life;
+                ctx.beginPath();
+                ctx.arc(this.x, this.y, 2, 0, Math.PI*2);
+                ctx.fill();
+                ctx.globalAlpha = 1;
+            }
+            isDead() { return this.life <= 0; }
+        }
+
+        // --- System Kolizji ---
+        function resolveCollisions() {
+            for (let i = 0; i < stones.length; i++) {
+                for (let j = i + 1; j < stones.length; j++) {
+                    const s1 = stones[i];
+                    const s2 = stones[j];
+
+                    const dx = s2.x - s1.x;
+                    const dy = s2.y - s1.y;
+                    const distSq = dx*dx + dy*dy;
+                    const minDist = s1.radius + s2.radius;
+
+                    // 1. Fizyka zderzenia
+                    if (distSq < minDist * minDist) {
+                        const dist = Math.sqrt(distSq);
+                        if (dist === 0) continue;
+
+                        const nx = dx / dist;
+                        const ny = dy / dist;
+                        const overlap = minDist - dist;
+                        const correction = overlap * 0.5; 
+                        
+                        if (!s1.isDragging) {
+                            s1.x -= nx * correction;
+                            s1.y -= ny * correction;
+                        }
+                        if (!s2.isDragging) {
+                            s2.x += nx * correction;
+                            s2.y += ny * correction;
+                        }
+
+                        const dvx = s2.vx - s1.vx;
+                        const dvy = s2.vy - s1.vy;
+                        const velAlongNormal = dvx * nx + dvy * ny;
+
+                        if (velAlongNormal > 0) continue;
+
+                        const e = STONE_ELASTICITY;
+                        let jImpulse = -(1 + e) * velAlongNormal;
+                        jImpulse /= (s1.invMass + s2.invMass);
+
+                        const impulseX = jImpulse * nx;
+                        const impulseY = jImpulse * ny;
+
+                        if (!s1.isDragging) {
+                            s1.vx -= impulseX * s1.invMass;
+                            s1.vy -= impulseY * s1.invMass;
+                        }
+                        if (!s2.isDragging) {
+                            s2.vx += impulseX * s2.invMass;
+                            s2.vy += impulseY * s2.invMass;
+                        }
+
+                        const impactForce = Math.abs(jImpulse) * 0.05;
+                        if (impactForce > 2) {
+                            s1.onImpact(impactForce);
+                            s2.onImpact(impactForce);
+                        }
+                    }
+
+                    // 2. Odpychanie
+                    if (isRepulsionOn && distSq < (minDist * 4) * (minDist * 4)) {
+                        const dist = Math.sqrt(distSq);
+                        const force = 500 / (distSq + 1);
+                        const fx = (dx / dist) * force;
+                        const fy = (dy / dist) * force;
+
+                        if (!s1.isDragging) {
+                            s1.vx -= fx / s1.mass * 1000;
+                            s1.vy -= fy / s1.mass * 1000;
+                        }
+                        if (!s2.isDragging) {
+                            s2.vx += fx / s2.mass * 1000;
+                            s2.vy += fy / s2.mass * 1000;
+                        }
+                    }
+                }
+            }
+        }
+
+        // --- Funkcje UI ---
+        function setMode(mode) {
+            currentMode = mode;
+            document.querySelectorAll('#ui-panel button').forEach(b => b.classList.remove('active-mode'));
+            document.getElementById(`mode-${mode}`).classList.add('active-mode');
+            
+            if (mode === 'spawn') {
+                toolText.innerText = "✋ Tryb: Tworzenie";
+                toolText.style.color = "#0ff";
+            } else if (mode === 'explode') {
+                toolText.innerText = "💣 Tryb: Bomba";
+                toolText.style.color = "#f55";
+            }
+        }
+
+        function toggleGravity() {
+            isGravityOn = !isGravityOn;
+            gravityText.innerText = isGravityOn ? "🌍 Grawitacja: ON" : "🌍 Grawitacja: OFF";
+            gravityText.style.background = isGravityOn ? "rgba(0,0,0,0.4)" : "rgba(255, 50, 50, 0.4)";
+        }
+
+        function toggleRepulsion() {
+            isRepulsionOn = !isRepulsionOn;
+            repelStatus.innerText = isRepulsionOn ? "ON" : "OFF";
+            repelStatus.style.background = isRepulsionOn ? "rgba(0,255,200,0.4)" : "rgba(0,0,0,0.3)";
+        }
+
+        function togglePause() {
+            isPaused = !isPaused;
+        }
+
+        function clearAll() {
+            stones = [];
+            particles = [];
+            shockwaves = [];
+        }
+
+        function spawnRain() {
+            const count = window.innerWidth < 600 ? 5 : 8; // Mniej kamieni na telefonie
+            for(let i=0; i<count; i++) {
+                setTimeout(() => {
+                    stones.push(new Stone(Math.random() * width, -50, null));
+                }, i * 100);
+            }
+        }
+
+        function resetImpulse() {
+            stones.forEach(s => { s.vx = 0; s.vy = 0; });
+        }
+
+        function createExplosion(x, y) {
+            const explosionRadius = window.innerWidth < 600 ? 150 : 250;
+            const explosionForce = window.innerWidth < 600 ? 15 : 25;
+
+            shockwaves.push(new Shockwave(x, y, explosionRadius));
+            for(let i=0; i<30; i++) particles.push(new Particle(x, y, 15));
+            shakeScreen(10);
+
+            stones.forEach(s => {
+                const dx = s.x - x;
+                const dy = s.y - y;
+                const dist = Math.sqrt(dx*dx + dy*dy);
+                
+                if (dist < explosionRadius) {
+                    const force = (1 - dist / explosionRadius) * explosionForce;
+                    const angle = Math.atan2(dy, dx);
+                    s.vx += Math.cos(angle) * force;
+                    s.vy += Math.sin(angle) * force;
+                }
+            });
+        }
+
+        function shakeScreen(intensity) {
+            const shakeAmount = Math.min(intensity, 10);
+            document.body.style.transform = `translate(${(Math.random()-0.5)*shakeAmount}px, ${(Math.random()-0.5)*shakeAmount}px)`;
+            setTimeout(() => {
+                document.body.style.transform = 'translate(0,0)';
+            }, 50);
+        }
+
+        // --- Obsługa Wejścia (Myszka + Dotyk) ---
+        let draggedStone = null;
+        let mouseX = 0, mouseY = 0;
+        let prevMouseX = 0, prevMouseY = 0;
+
+        function getPos(e) {
+            const rect = canvas.getBoundingClientRect();
+            // Obsługa touch lub mouse
+            const clientX = e.touches ? e.touches[0].clientX : e.clientX;
+            const clientY = e.touches ? e.touches[0].clientY : e.clientY;
+            return { x: clientX - rect.left, y: clientY - rect.top };
+        }
+
+        function handlePointerDown(e) {
+            // Zapobieganie domyślnym akcjom przeglądarki (podświetlanie tekstów, zoom)
+            if(e.cancelable) e.preventDefault();
+            
+            const pos = getPos(e);
+            prevMouseX = pos.x;
+            prevMouseY = pos.y;
+
+            // Sprawdź czy kliknięto w istniejący kamień
+            for (let i = stones.length - 1; i >= 0; i--) {
+                const s = stones[i];
+                const dx = pos.x - s.x;
+                const dy = pos.y - s.y;
+                // Powiększony obszar klikania dla wygody na mobile
+                const hitArea = s.radius + 10; 
+                
+                if (Math.sqrt(dx*dx + dy*dy) < hitArea) {
+                    draggedStone = s;
+                    draggedStone.isDragging = true;
+                    // Przesuń na koniec tablicy, żeby rysował się na wierzchu
+                    stones.splice(i, 1);
+                    stones.push(draggedStone);
+                    return; 
+                }
+            }
+
+            // Jeśli nie trafiono w kamień
+            if (currentMode === 'spawn') {
+                const newStone = new Stone(pos.x, pos.y);
+                stones.push(newStone);
+                draggedStone = newStone; 
+                draggedStone.isDragging = true;
+            } else if (currentMode === 'explode') {
+                createExplosion(pos.x, pos.y);
+            }
+        }
+
+        function handlePointerMove(e) {
+            if(e.cancelable) e.preventDefault();
+            const pos = getPos(e);
+            mouseX = pos.x;
+            mouseY = pos.y;
+
+            if (draggedStone) {
+                draggedStone.x = mouseX;
+                draggedStone.y = mouseY;
+                draggedStone.vx = 0; 
+                draggedStone.vy = 0;
+            }
+        }
+
+        function handlePointerUp(e) {
+            if (draggedStone) {
+                // Rzut na podstawie prędkości ostatniego ruchu
+                draggedStone.vx = (mouseX - prevMouseX) * 0.8; 
+                draggedStone.vy = (mouseY - prevMouseY) * 0.8;
+                draggedStone.isDragging = false;
+                draggedStone = null;
+            }
+        }
+
+        // Listeners
+        canvas.addEventListener('mousedown', handlePointerDown);
+        window.addEventListener('mousemove', handlePointerMove);
+        window.addEventListener('mouseup', handlePointerUp);
+        
+        canvas.addEventListener('touchstart', handlePointerDown, {passive: false});
+        window.addEventListener('touchmove', handlePointerMove, {passive: false});
+        window.addEventListener('touchend', handlePointerUp);
+
+        // --- Pętla Gry ---
+        function animate() {
+            // Tło z lekkim śladem dla efektu ruchu
+            ctx.fillStyle = 'rgba(26, 26, 46, 0.35)';
+            ctx.fillRect(0, 0, width, height);
+
+            // Siatka
+            ctx.strokeStyle = 'rgba(255, 255, 255, 0.03)';
+            ctx.lineWidth = 1;
+            ctx.beginPath();
+            const gridSize = 100;
+            for(let i=0; i<width; i+=gridSize) { ctx.moveTo(i, 0); ctx.lineTo(i, height); }
+            for(let i=0; i<height; i+=gridSize) { ctx.moveTo(0, i); ctx.lineTo(width, i); }
+            ctx.stroke();
+
+            resolveCollisions();
+
+            for (let i = particles.length - 1; i >= 0; i--) {
+                particles[i].update();
+                particles[i].draw();
+                if (particles[i].isDead()) particles.splice(i, 1);
+            }
+
+            for (let i = shockwaves.length - 1; i >= 0; i--) {
+                shockwaves[i].update();
+                shockwaves[i].draw();
+                if (shockwaves[i].isDead()) shockwaves.splice(i, 1);
+            }
+
+            for (let stone of stones) {
+                stone.update();
+                stone.draw();
+            }
+
+            // Wizualizacja rzutu (linia napięcia)
+            if (draggedStone) {
+                ctx.beginPath();
+                ctx.moveTo(draggedStone.x, draggedStone.y);
+                // Linia pokazuje przeciwny kierunek rzutu
+                ctx.lineTo(draggedStone.x - (mouseX - prevMouseX)*3, draggedStone.y - (mouseY - prevMouseY)*3);
+                ctx.strokeStyle = 'rgba(255, 255, 255, 0.6)';
+                ctx.setLineDash([5, 5]);
+                ctx.lineWidth = 3;
+                ctx.stroke();
+                ctx.setLineDash([]);
+            }
+
+            requestAnimationFrame(animate);
+        }
+
+        // Start
+        // Dodajemy jeden kamień na środku
+        stones.push(new Stone(width/2, height/3));
+        animate();
+
+    </script>
+</body>
+</html>
